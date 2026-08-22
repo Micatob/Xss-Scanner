@@ -1,1 +1,0 @@
-so now whenever i run this my script i should look for anywhere that has input fields right? and i can set my code to target that very place right
