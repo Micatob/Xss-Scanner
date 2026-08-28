@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+
+scan_results/
+test_results/
+
+# local scratch / editor
+run.txt
+.vscode/
+.idea/
+*.log

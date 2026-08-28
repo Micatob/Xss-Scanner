@@ -1,0 +1,175 @@
+XSS SCAN RESULTS EXPLAINED
+Target: https://www.ogitech.edu.ng/eportal/
+Date: 2026-08-21
+======================================================================
+
+IMPORTANT CONTEXT
+----------------------------------------------------------------------
+This is a school portal login page (OGITECH - Ogun State Institute of
+Technology). The form has two fields: userName and userPassW (login form).
+
+The tool found several issues, but NOT all of them are real/exploitable.
+Here's what actually matters:
+
+
+1. REFLECTED XSS (Phase 2)
+----------------------------------------------------------------------
+What happened: The tool injected payloads into the userName and userPassW
+fields and checked if parts of those payloads appeared in the server's
+response.
+
+What it found: Many payloads had tokens like "alert", "script", "svg",
+"javascript" reflected back in the response. Confidence: 43-65%.
+
+WHAT THIS MEANS: The login form reflects some user input back to the
+browser. However, the reflected content is likely inside HTML attribute
+values or JavaScript strings where it CANNOT execute as code. The 65%
+confidence means the tool thinks there's a moderate chance, but it has
+NOT confirmed actual code execution.
+
+ACTION: You would need to manually verify by opening the page source
+and searching for where "userName" or "userPassW" values appear. If
+they appear inside a <script> tag or an event handler like onclick=,
+it's exploitable. If they appear inside an HTML attribute with proper
+encoding, it's likely NOT exploitable.
+
+
+2. STORED XSS (Phase 3) - MOST INTERESTING FINDING
+----------------------------------------------------------------------
+What happened: The tool submitted a payload to the login form and then
+re-fetched the page to see if the payload was stored and displayed back.
+
+What it found: The payload was IMMEDIATELY REFLECTED and CONFIRMED STORED:
+  Payload: <iframe srcdoc="<ScRiPt>new Image().src=..."
+
+WHAT THIS MEANS: The application takes what you type into the login
+fields and stores/displays it back WITHOUT proper sanitization. The
+iframe srcdoc payload was accepted and reflected back. This is the
+most significant finding.
+
+HOWEVER: For this to be truly exploitable, another user (like an admin)
+would need to view the stored content. Since this is a login form, the
+stored content might only be visible in admin dashboards or logs.
+
+ACTION: Test if an admin account would see the stored payload. Try
+logging in with XSS in the username field and see if it appears in
+any admin panel or user listing.
+
+
+3. SERVER-SIDE TEMPLATE INJECTION - SSTI (Phase 3B)
+----------------------------------------------------------------------
+What happened: The tool tested if the server evaluates template
+expressions by sending {{7*7}}.
+
+What it found: SSTI CONFIRMED - the server evaluated {{7*7}}.
+
+WHAT THIS MEANS: The server is using a template engine (likely Jinja2
+for Python or similar) and is directly injecting user input into
+templates. This is a SERIOUS vulnerability that can lead to:
+  - Remote Code Execution (RCE)
+  - Full server compromise
+  - Data theft
+
+ACTION: This is the highest priority finding. SSTI can be more
+dangerous than XSS. Verify manually by sending {{7*7}} in the
+userName field and checking if the response contains "49".
+
+
+4. DOM XSS (Phase 4)
+----------------------------------------------------------------------
+What happened: The tool found 14 different DOM sinks in the page's
+JavaScript code:
+  $(), .html(), .text(), document.location, innerHTML, jQuery(),
+  location.hash, location.href, location.pathname, new Function,
+  outerHTML, postMessage, setInterval, setTimeout
+
+WHAT THIS MEANS: The page's JavaScript uses dangerous functions that
+could allow DOM-based XSS. The page reads from URL parameters
+(location.hash, location.href) and writes to the DOM (.html(), innerHTML).
+If user input flows from a source to a sink without sanitization, it's
+exploitable.
+
+ACTION: Inspect the page's JavaScript to trace if URL parameters
+reach any of these sinks without encoding.
+
+
+5. WAF & SECURITY HEADERS
+----------------------------------------------------------------------
+WAF Detected: Cloudflare (active)
+CSP: Restrictive Content Security Policy in place
+
+WHAT THIS MEANS: Cloudflare will block many obvious XSS payloads.
+The restrictive CSP limits what scripts can execute. This makes
+exploitation harder but NOT impossible (especially with SSTI).
+
+
+6. ERROR / CRASH
+----------------------------------------------------------------------
+The tool crashed during Phase 4B (Prototype Pollution testing) with:
+  NameError: name 'base_url' not defined
+
+WHAT THIS MEANS: There's a bug in the scanner code. Phase 4B
+(client-side XSS tests) is broken. The remaining phases
+(WebAssembly, Browser Extensions, etc.) were NOT tested.
+
+This does NOT affect the validity of the findings above.
+
+
+PRIORITY RANKING (What to investigate first)
+======================================================================
+
+1. SSTI (Server-Side Template Injection) - CRITICAL
+   - Can lead to Remote Code Execution
+   - Test: Send {{7*7}} in userName, check if response has "49"
+   - If confirmed, this is the most dangerous finding
+
+2. Stored XSS via Login Form - HIGH
+   - The iframe srcdoc payload was stored and reflected
+   - Test: Log in with XSS payload, check admin panels
+
+3. DOM XSS Sinks - MEDIUM
+   - Many dangerous DOM manipulation functions found
+   - Requires manual JavaScript analysis to confirm
+
+4. Reflected XSS - LOW-MEDIUM
+   - Tokens reflected but likely in non-exploitable context
+   - Requires manual verification of reflection context
+
+
+HOW TO VERIFY FINDINGS MANUALLY
+======================================================================
+
+For SSTI:
+  1. Open browser DevTools (F12)
+  2. Go to Network tab
+  3. Submit the login form with userName = {{7*7}}
+  4. Check the response HTML - if you see "49", SSTI is confirmed
+
+For Stored XSS:
+  1. Submit login with userName containing: <script>alert(1)</script>
+  2. Check if any admin user sees the alert popup
+  3. Check server logs or admin panels for the stored content
+
+For DOM XSS:
+  1. Open the page source (Ctrl+U)
+  2. Search for document.location, location.hash, innerHTML
+  3. Check if any JavaScript reads URL params and writes to DOM
+
+
+REMEDIATION RECOMMENDATIONS
+======================================================================
+
+1. SSTI: Never inject user input directly into templates.
+   Use template variables with auto-escaping enabled.
+
+2. Stored XSS: Sanitize all user input before storage.
+   Use HTML entity encoding when displaying stored content.
+
+3. DOM XSS: Use textContent instead of innerHTML.
+   Sanitize URL parameters before DOM insertion.
+
+4. General: Implement Content Security Policy (already done via Cloudflare).
+   Use HTTPOnly cookies. Implement input validation on server side.
+
+======================================================================
+END OF REPORT
