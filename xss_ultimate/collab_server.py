@@ -94,7 +94,15 @@ class CollabServer:
             return
         CollabHandler.interactions = []
         CollabHandler.log_callback = self._on_interaction
-        self.server = HTTPServer((self.host, self.port), CollabHandler)
+        try:
+            self.server = HTTPServer((self.host, self.port), CollabHandler)
+        except OSError:
+            # Port busy (common on re-runs) — fall back to an ephemeral port
+            # instead of crashing the whole scan.
+            self.server = HTTPServer((self.host, 0), CollabHandler)
+            self.port = self.server.server_address[1]
+            self.callback_url = f"http://localhost:{self.port}"
+            print(f"  [!] Port busy, using ephemeral collab port {self.port}")
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self._running = True
@@ -131,23 +139,31 @@ class CollabServer:
     def get_interactions(self) -> List[Dict]:
         return list(self.interactions)
 
-    def get_callback_url(self) -> str:
-        return f"http://{self.get_external_ip()}:{self.port}"
+    def get_callback_url(self, target_url: str = "") -> str:
+        return f"http://{self.get_external_ip(target_url)}:{self.port}"
 
-    def get_external_ip(self) -> str:
+    def get_external_ip(self, target_url: str = "") -> str:
+        # For localhost targets the callback must also be localhost,
+        # otherwise the payload would point at a LAN IP the test server
+        # never calls back to.
         try:
-            import requests
-            r = requests.get("https://api.ipify.org", timeout=5)
-            if r.status_code == 200:
-                return r.text.strip()
+            if target_url and urlparse(target_url).hostname in (
+                "127.0.0.1", "localhost", "::1",
+            ):
+                return "127.0.0.1"
         except Exception:
             pass
+        # Prefer a local socket IP (fast, offline-safe). The old code did an
+        # external https://api.ipify.org lookup with a 5s timeout on every
+        # scan, adding seconds even when offline.
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(1.0)
             s.connect(("8.8.8.8", 80))
             ip = s.getsockname()[0]
             s.close()
-            return ip
+            if ip and not ip.startswith("0."):
+                return ip
         except Exception:
             pass
         return "127.0.0.1"

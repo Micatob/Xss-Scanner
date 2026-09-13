@@ -295,15 +295,64 @@ XSS_TYPE_EXPLANATIONS = {
         "can be overwritten by an HTML element. An attacker can use this to redirect the "
         "script's trust in ways that lead to XSS."
     ),
-    "clientside": (
-        "Client-side / browser-side sink found (WebSocket, Service Worker, postMessage, "
-        "localStorage, MutationObserver, prototype pollution, etc.). Browser-only attack "
-        "surface; verify in a browser with a debugger."
+    "mutation_xss": (
+        "Mutation XSS: the page rewrites HTML (via innerHTML/parsing) in a way that mutates "
+        "an innocent-looking payload into executable script. Verify in a real browser."
+    ),
+    "prototype_pollution_xss": (
+        "The app merges user input into objects without protection (Object.assign/_.merge/"
+        "jQuery.extend), polluting Object.prototype. May lead to XSS depending on the sinks "
+        "that later read those properties."
     ),
     "prototype_pollution": (
         "The app merges user input into objects without protection (Object.assign/_.merge/"
         "jQuery.extend), polluting Object.prototype. May lead to XSS depending on the sinks "
         "that later read those properties."
+    ),
+    "client_side_websocket": (
+        "WebSocket endpoint reflected test input. If messages are rendered without "
+        "sanitization, an attacker can push script through the socket."
+    ),
+    "client_side_service_worker": (
+        "Service Worker registration sink reachable with attacker input. Could enable "
+        "persistent script injection if the worker URL is controllable."
+    ),
+    "client_side_web_worker": (
+        "Web Worker sink reachable with attacker input. Worker code built from user "
+        "input can lead to script execution."
+    ),
+    "client_side_postmessage": (
+        "postMessage handler without strict origin checks. Another site can send it "
+        "messages that get rendered or executed."
+    ),
+    "client_side_indexeddb": (
+        "IndexedDB read/write built from user input and later rendered. Stored "
+        "client-side data can become stored XSS."
+    ),
+    "client_side_web_storage": (
+        "localStorage/sessionStorage value later rendered into the page. Stored "
+        "client-side data can become stored XSS."
+    ),
+    "client_side_template_injection": (
+        "Client-side template (Vue/Handlebars/Lodash etc.) renders user input. "
+        "Can lead to XSS without any server reflection."
+    ),
+    "client_side_wasm": (
+        "WebAssembly sink reachable. Unlikely to be XSS directly, but attacker "
+        "controlled bytes loaded as code deserve review."
+    ),
+    "client_side_webgpu_webgl": (
+        "WebGPU/WebGL sink noted. Informational — verify whether attacker input "
+        "reaches shader/code compilation."
+    ),
+    "client_side_extension": (
+        "Browser-extension messaging sink noted. Informational — verify whether "
+        "web content can reach extension APIs."
+    ),
+    "clientside": (
+        "Client-side / browser-side sink found (WebSocket, Service Worker, postMessage, "
+        "localStorage, MutationObserver, prototype pollution, etc.). Browser-only attack "
+        "surface; verify in a browser with a debugger."
     ),
     "csti": (
         "Client-side template injection (Vue/Handlebars/Lodash etc. template that trusts "
@@ -329,7 +378,23 @@ def _humanize_result(v: Dict) -> Dict:
     conf = float(v.get("confidence", 0) or 0)
     url = v.get("url", "")
 
-    explain = XSS_TYPE_EXPLANATIONS.get(vtype, XSS_TYPE_EXPLANATIONS["unknown"])
+    explain = XSS_TYPE_EXPLANATIONS.get(vtype, None)
+    if explain is None:
+        # Map client_side_* / other prefixed types to their family explanation.
+        if vtype.startswith("client_side_"):
+            explain = XSS_TYPE_EXPLANATIONS.get("clientside", XSS_TYPE_EXPLANATIONS["unknown"])
+        elif vtype.startswith("prototype"):
+            explain = XSS_TYPE_EXPLANATIONS.get("prototype_pollution", XSS_TYPE_EXPLANATIONS["unknown"])
+        elif "template" in vtype:
+            explain = XSS_TYPE_EXPLANATIONS.get("csti", XSS_TYPE_EXPLANATIONS["unknown"])
+        elif "mutation" in vtype:
+            explain = XSS_TYPE_EXPLANATIONS.get("mutation_xss", XSS_TYPE_EXPLANATIONS["unknown"])
+        elif "dom" in vtype:
+            explain = XSS_TYPE_EXPLANATIONS.get("dom_based", XSS_TYPE_EXPLANATIONS["unknown"])
+        elif "blind" in vtype:
+            explain = XSS_TYPE_EXPLANATIONS.get("blind_xss", XSS_TYPE_EXPLANATIONS["unknown"])
+        else:
+            explain = XSS_TYPE_EXPLANATIONS["unknown"]
 
     if conf >= 0.85:
         strength = "VERY HIGH confidence"
@@ -399,8 +464,6 @@ def _build_summary(results: List[Dict]) -> Dict:
 
 
 def generate_report(results: List[Dict], target_url: str, args=None) -> str:
-    if not results:
-        return None
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     domain = re.sub(r"[^A-Za-z0-9]", "_", urllib.parse.urlparse(target_url).netloc)
     base_name = f"{domain}_{timestamp}"

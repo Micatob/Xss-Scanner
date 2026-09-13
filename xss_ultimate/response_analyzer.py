@@ -110,10 +110,14 @@ class ResponseAnalyzer:
         matched_tokens = [t for t in tokens if t in response_text.lower()]
         if matched_tokens and tokens:
             ratio = len(matched_tokens) / len(tokens)
-            if ratio >= 0.6:
-                confidence = ratio * 0.65
+            # Token-only matches are weak evidence (the word "alert" or "svg"
+            # can appear naturally). Require a strong majority and cap the
+            # confidence below high-confidence so these never look "likely real"
+            # on their own. Real reflections are caught by direct/partial above.
+            if ratio >= 0.75:
+                confidence = round(ratio * 0.55, 2)
                 method = f"token_match({','.join(matched_tokens)})"
-                return True, f"XSS tokens reflected: {', '.join(matched_tokens)}", round(confidence, 2)
+                return True, f"XSS tokens reflected: {', '.join(matched_tokens)}", confidence
 
         # Encoded variations
         encoded_checks = [
@@ -201,7 +205,11 @@ class WAFDetector:
             "Imperva": [r"incapsula", r"X-Iinfo", r"visid_incap"],
             "WordFence": [r"wordfence", r"wfwaf"],
         }
-        self.block_indicators = ["code=403", "code=406", "code=418", "blocked", "waf", "forbidden"]
+        self.block_indicators = [
+            "blocked", "forbidden", "access denied", "request blocked",
+            "waf", "captcha", "challenge", "suspicious activity",
+            "not acceptable", "mod_security", "modsecurity",
+        ]
 
     def detect(self, response: requests.Response) -> Dict:
         detected = []

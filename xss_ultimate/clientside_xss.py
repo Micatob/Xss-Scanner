@@ -16,7 +16,7 @@ from .response_analyzer import ResponseAnalyzer
 
 
 class ClientSideXSSTester:
-    def __init__(self, session: requests.Session, timeout=15, delay=0.3, geo_spoof=False, collab_url=None):
+    def __init__(self, session: requests.Session, timeout=15, delay=0.3, geo_spoof=False, collab_url=None, max_payloads=0):
         self.session = session
         self.timeout = timeout
         self.delay = delay
@@ -24,8 +24,10 @@ class ClientSideXSSTester:
         self.analyzer = ResponseAnalyzer()
         self.payload_engine = PayloadEngine(collab_url=collab_url)
         self.collab_url = collab_url
+        self.max_payloads = max_payloads
         self.results = []
         self.analyzed_endpoints: Set[str] = set()
+        self._page_cache: Dict[str, str] = {}
 
     def test_all_client_side(self, spider_results: Dict, base_url: str, js_analysis: Dict) -> List[Dict]:
         print("\n=== PHASE 4B: BROWSER-SIDE / CLIENT-SIDE XSS TESTING ===")
@@ -46,23 +48,46 @@ class ClientSideXSSTester:
         
         return self.results
 
+    def _cached_get_text(self, url: str) -> str:
+        if url in self._page_cache:
+            return self._page_cache[url]
+        try:
+            resp = self.session.get(url, timeout=min(self.timeout, 8), verify=False)
+            text = resp.text if resp is not None else ""
+        except Exception:
+            text = ""
+        self._page_cache[url] = text
+        return text
+
+    @staticmethod
+    def _with_param(url: str, key: str, value: str) -> str:
+        """Return url with query param overwritten (not duplicated)."""
+        try:
+            parsed = urlparse(url.split("#")[0])
+            qs = parse_qs(parsed.query, keep_blank_values=True)
+            qs[key] = [value]
+            return parsed._replace(query=urllib.parse.urlencode(qs, doseq=True)).geturl()
+        except Exception:
+            sep = "&" if "?" in url else "?"
+            return f"{url}{sep}{urllib.parse.urlencode({key: value})}"
+
     def _test_websocket_endpoints(self, spider_results: Dict, base_url: str):
         print("  Testing WebSocket endpoints for XSS...")
         ws_urls = self._extract_websocket_urls(spider_results)
-        
-        for ws_url in ws_urls[:5]:
+
+        for ws_url in ws_urls[:3]:
             if ws_url in self.analyzed_endpoints:
                 continue
             self.analyzed_endpoints.add(ws_url)
-            
+
             payloads = self.payload_engine.generate_web_socket_payloads(self.collab_url)
-            for payload in payloads[:3]:
+            for payload in payloads[:2]:
                 time.sleep(self.delay)
                 try:
                     test_url = self._inject_into_ws_url(ws_url, payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected:
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "client_side_websocket",
                             "url": ws_url,
@@ -86,15 +111,15 @@ class ClientSideXSSTester:
                 ws_urls.append(match.group(1))
             for match in re.finditer(r'new\s+WebSocket\s*\(\s*["\']([^"\']+)["\']', content):
                 ws_urls.append(match.group(1))
-        
-        for url in spider_results.get("urls", []):
+
+        for url in spider_results.get("urls", [])[:5]:
             try:
-                resp = self.session.get(url, timeout=5, verify=False)
-                for match in re.finditer(r'(ws[s]?://[^\s"\'<>]+)', resp.text, re.IGNORECASE):
+                text = self._cached_get_text(url)
+                for match in re.finditer(r'(ws[s]?://[^\s"\'<>]+)', text, re.IGNORECASE):
                     ws_urls.append(match.group(1))
             except Exception:
                 pass
-        
+
         return list(set(ws_urls))
 
     def _inject_into_ws_url(self, ws_url: str, payload: str) -> str:
@@ -116,10 +141,10 @@ class ClientSideXSSTester:
             for payload in payloads[:2]:
                 time.sleep(self.delay)
                 try:
-                    test_url = sw_url + "?sw_payload=" + urllib.parse.quote(payload)
+                    test_url = self._with_param(sw_url, "sw_payload", payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected:
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "client_side_service_worker",
                             "url": sw_url,
@@ -157,10 +182,10 @@ class ClientSideXSSTester:
             for payload in payloads[:2]:
                 time.sleep(self.delay)
                 try:
-                    test_url = worker_url + "?worker_data=" + urllib.parse.quote(payload)
+                    test_url = self._with_param(worker_url, "worker_data", payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected:
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "client_side_web_worker",
                             "url": worker_url,
@@ -195,7 +220,7 @@ class ClientSideXSSTester:
                 if "postMessage" in content or "addEventListener.*message" in content:
                     pm_sinks.append({"sink": "postMessage", "file": script.get("src", "inline"), "context": content[:200]})
         
-        for sink in pm_sinks[:5]:
+        for sink in pm_sinks[:3]:
             sink_url = sink.get("file", base_url)
             if sink_url in self.analyzed_endpoints:
                 continue
@@ -208,7 +233,7 @@ class ClientSideXSSTester:
                     test_url = sink_url + "#postmsg=" + urllib.parse.quote(payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected:
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "client_side_postmessage",
                             "url": sink_url,
@@ -240,7 +265,7 @@ class ClientSideXSSTester:
                     test_url = sink_url + "#idb=" + urllib.parse.quote(payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected:
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "client_side_indexeddb",
                             "url": sink_url,
@@ -271,7 +296,7 @@ class ClientSideXSSTester:
         print("  Testing Web Storage (localStorage/sessionStorage) sinks...")
         storage_sinks = self._find_web_storage_usage(spider_results, base_url)
         
-        for sink_url in storage_sinks[:5]:
+        for sink_url in storage_sinks[:3]:
             if sink_url in self.analyzed_endpoints:
                 continue
             self.analyzed_endpoints.add(sink_url)
@@ -288,7 +313,7 @@ class ClientSideXSSTester:
                     test_url = sink_url + "#storage=" + urllib.parse.quote(payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected:
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "client_side_web_storage",
                             "url": sink_url,
@@ -319,19 +344,19 @@ class ClientSideXSSTester:
         print("  Testing Mutation XSS (mutation observer sinks)...")
         mutation_sinks = self._find_mutation_observer_usage(spider_results, base_url)
         
-        for sink_url in mutation_sinks[:5]:
+        for sink_url in mutation_sinks[:3]:
             if sink_url in self.analyzed_endpoints:
                 continue
             self.analyzed_endpoints.add(sink_url)
             
             payloads = self.payload_engine.generate_mutation_xss_payloads(self.collab_url)
-            for payload in payloads[:5]:
+            for payload in payloads[:3]:
                 time.sleep(self.delay)
                 try:
                     test_url = sink_url + "#mut=" + urllib.parse.quote(payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected:
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "mutation_xss",
                             "url": sink_url,
@@ -362,19 +387,22 @@ class ClientSideXSSTester:
         print("  Testing Prototype Pollution leading to XSS...")
         proto_sinks = self._find_prototype_pollution_sinks(spider_results, base_url, js_analysis)
         
-        for sink_url in proto_sinks[:5]:
+        for sink_url in proto_sinks[:3]:
             if sink_url in self.analyzed_endpoints:
                 continue
             self.analyzed_endpoints.add(sink_url)
             
             payloads = self.payload_engine.generate_prototype_pollution_payloads(self.collab_url)
-            for payload in payloads[:5]:
+            for payload in payloads[:3]:
                 time.sleep(self.delay)
                 try:
-                    test_url = sink_url + "?__proto__[xss]=" + urllib.parse.quote(payload)
+                    test_url = self._with_param(sink_url, "__proto__[xss]", payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected or "polluted" in resp.text or "xss" in resp.text.lower():
+                    # Only trust actual reflection. The old code also fired on
+                    # any page containing the substrings "polluted"/"xss",
+                    # which are common false positives.
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "prototype_pollution_xss",
                             "url": sink_url,
@@ -410,7 +438,7 @@ class ClientSideXSSTester:
         print("  Testing DOM Clobbering...")
         clobber_sinks = self._find_dom_clobbering_sinks(spider_results, base_url)
         
-        for sink_url in clobber_sinks[:5]:
+        for sink_url in clobber_sinks[:3]:
             if sink_url in self.analyzed_endpoints:
                 continue
             self.analyzed_endpoints.add(sink_url)
@@ -428,7 +456,7 @@ class ClientSideXSSTester:
                     test_url = sink_url + "#clobber=" + urllib.parse.quote(payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected:
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "dom_clobbering",
                             "url": sink_url,
@@ -459,7 +487,7 @@ class ClientSideXSSTester:
         print("  Testing Client-Side Template Injection...")
         template_sinks = self._find_client_template_sinks(spider_results, base_url, js_analysis)
         
-        for sink_info in template_sinks[:5]:
+        for sink_info in template_sinks[:3]:
             sink_url = sink_info.get("url", base_url)
             template_engine = sink_info.get("engine", "unknown")
             
@@ -468,13 +496,16 @@ class ClientSideXSSTester:
             self.analyzed_endpoints.add(sink_url)
             
             payloads = self._get_template_payloads(template_engine)
-            for payload in payloads[:4]:
+            for payload in payloads[:3]:
                 time.sleep(self.delay)
                 try:
-                    test_url = sink_url + f"?{sink_info.get('param','template')}=" + urllib.parse.quote(payload)
+                    test_url = self._with_param(sink_url, sink_info.get('param', 'template'), payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected or "49" in resp.text or "alert" in resp.text.lower():
+                    # Only trust actual reflection of the probe. The old code
+                    # also fired on any page containing "49"/"alert", which is
+                    # almost every JS-heavy page.
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "client_side_template_injection",
                             "url": sink_url,
@@ -517,12 +548,12 @@ class ClientSideXSSTester:
                         })
                         break
         
-        for url in spider_results.get("urls", [])[:10]:
+        for url in spider_results.get("urls", [])[:5]:
             try:
-                resp = self.session.get(url, timeout=5, verify=False)
+                text = self._cached_get_text(url)
                 for engine, patterns in template_patterns.items():
                     for pat in patterns:
-                        if re.search(pat, resp.text, re.IGNORECASE):
+                        if re.search(pat, text, re.IGNORECASE):
                             sinks.append({"url": url, "engine": engine, "param": "template"})
                             break
             except Exception:
@@ -587,7 +618,7 @@ class ClientSideXSSTester:
                     test_url = sink_url + "#wasm=" + urllib.parse.quote(payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected:
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "client_side_wasm",
                             "url": sink_url,
@@ -635,7 +666,7 @@ class ClientSideXSSTester:
                     test_url = sink_url + "#gpu=" + urllib.parse.quote(payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected:
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "client_side_webgpu_webgl",
                             "url": sink_url,
@@ -683,7 +714,7 @@ class ClientSideXSSTester:
                     test_url = sink_url + "#ext=" + urllib.parse.quote(payload)
                     resp = self.session.get(test_url, timeout=self.timeout, verify=False)
                     reflected, method, conf = self.analyzer.detect_reflection(payload, resp.text)
-                    if reflected:
+                    if reflected and conf >= 0.6:
                         self.results.append({
                             "xss_type": "client_side_extension",
                             "url": sink_url,
@@ -712,30 +743,36 @@ class ClientSideXSSTester:
 
 
 class ServerSideTemplateInjectionTester:
-    def __init__(self, session: requests.Session, timeout=15, delay=0.5, geo_spoof=False, collab_url=None):
+    def __init__(self, session: requests.Session, timeout=15, delay=0.5, geo_spoof=False, collab_url=None, max_payloads=0):
         self.session = session
         self.timeout = timeout
         self.delay = delay
         self.geo_spoof = geo_spoof
         self.analyzer = ResponseAnalyzer()
         self.collab_url = collab_url
+        self.max_payloads = max_payloads
         self.results = []
 
     def test_ssti(self, injection_points: List[Dict]) -> List[Dict]:
         print("\n=== PHASE 3B: SERVER-SIDE TEMPLATE INJECTION (SSTI) ===")
-        
+
         ssti_payloads = self._get_ssti_payloads()
-        
-        for point in injection_points[:20]:
+        if self.max_payloads and self.max_payloads > 0:
+            # Math probes are first, so slicing keeps the highest-signal tests.
+            ssti_payloads = ssti_payloads[:self.max_payloads]
+
+        for point in injection_points[:10]:
             url = point.get("url", "")
             method = point.get("method", "GET")
             params = point.get("params", [])
-            
+
             if not params:
                 continue
-            
+
             print(f"  Testing SSTI on {method} {url} params: {params}")
-            
+
+            baseline_text = self._fetch_baseline(url, method, params)
+
             for payload in ssti_payloads:
                 time.sleep(self.delay)
                 try:
@@ -745,8 +782,8 @@ class ServerSideTemplateInjectionTester:
                     else:
                         data = {p: payload for p in params}
                         resp = self.session.post(url, data=data, timeout=self.timeout, verify=False)
-                    
-                    if self._check_ssti_execution(payload, resp.text):
+
+                    if self._check_ssti_execution(payload, resp.text, baseline_text):
                         self.results.append({
                             "xss_type": "ssti",
                             "url": url,
@@ -760,10 +797,10 @@ class ServerSideTemplateInjectionTester:
                         })
                         print(f"    [V] SSTI CONFIRMED: {payload[:50]}")
                         break
-                        
+
                 except Exception:
                     pass
-        
+
         return self.results
 
     def _get_ssti_payloads(self) -> List[str]:
@@ -808,9 +845,51 @@ class ServerSideTemplateInjectionTester:
         injected = parsed._replace(query=urllib.parse.urlencode(qs, doseq=True)).geturl()
         return injected
 
-    def _check_ssti_execution(self, payload: str, response_text: str) -> bool:
+    def _fetch_baseline(self, url: str, method: str, params: List[str]) -> str:
+        """Fetch a benign baseline so SSTI math ('49') is only trusted when it
+        newly appears after injection (avoids flagging pages that already
+        contain '49' in dates, ports, etc.)."""
+        try:
+            if method == "GET":
+                resp = self.session.get(url, timeout=self.timeout, verify=False)
+            else:
+                resp = self.session.post(
+                    url, data={p: "baseline123" for p in params},
+                    timeout=self.timeout, verify=False,
+                )
+            return resp.text if resp is not None else ""
+        except Exception:
+            return ""
+
+    def _check_ssti_execution(self, payload: str, response_text: str, baseline_text: str = "") -> bool:
+        if not response_text:
+            return False
+        # If the probe is echoed back verbatim, the template was NOT evaluated.
+        # That is (at most) reflected XSS, never SSTI.
+        if payload in response_text:
+            return False
+
+        response_lower = response_text.lower()
+        baseline_lower = (baseline_text or "").lower()
+        payload_lower = payload.lower()
+
+        # Math probes: only trust '49' when it newly appears vs baseline.
+        is_math_probe = (
+            ("{{" in payload and "}}" in payload)
+            or ("${" in payload and "}" in payload)
+            or ("#{" in payload and "}" in payload)
+            or ("<%" in payload and "%>" in payload)
+            or ("*{" in payload and "}" in payload)
+            or ("@(" in payload and ")" in payload)
+        )
+        if is_math_probe:
+            if "49" in response_text and "49" not in payload and "49" not in (baseline_text or ""):
+                return True
+            # Math probe without a new '49' is not SSTI — don't fall through
+            # to the generic indicators below.
+            return False
+
         indicators = [
-            "49",
             "root:",
             "/etc/passwd",
             "uid=",
@@ -822,23 +901,15 @@ class ServerSideTemplateInjectionTester:
             "__globals__",
             "java.lang.Runtime",
             "ProcessBuilder",
-            "exec(",
             "Runtime.getRuntime",
         ]
-        
-        response_lower = response_text.lower()
-        payload_lower = payload.lower()
-        
-        if "{{" in payload and "}}" in payload:
-            if "49" in response_text and "49" not in payload:
-                return True
-        
-        if "${" in payload and "}" in payload:
-            if "49" in response_text and "49" not in payload:
-                return True
-        
+
         for indicator in indicators:
-            if indicator.lower() in response_lower and indicator.lower() not in payload_lower:
+            if (
+                indicator.lower() in response_lower
+                and indicator.lower() not in payload_lower
+                and indicator.lower() not in baseline_lower
+            ):
                 return True
-        
+
         return False

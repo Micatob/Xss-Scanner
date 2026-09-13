@@ -13,12 +13,14 @@ from . import utils
 
 
 class SiteSpider:
-    def __init__(self, start_url: str, session: requests.Session, timeout=15, max_pages=50, geo_spoof=False):
+    def __init__(self, start_url: str, session: requests.Session, timeout=15, max_pages=50, geo_spoof=False, delay=0.2, stealth=False):
         self.start_url = start_url
         self.session = session
         self.timeout = timeout
         self.max_pages = max_pages
         self.geo_spoof = geo_spoof
+        self.delay = delay
+        self.stealth = stealth
         self.visited: Set[str] = set()
         self.to_visit: deque = deque()
         self.start_domain = utils.extract_domain(start_url)
@@ -87,9 +89,16 @@ class SiteSpider:
                     self.discovered_urls.add(link)
                     self.to_visit.append(link)
                     self.crawl_results["urls"].append(link)
-            time.sleep(random.uniform(0.3, 0.8))
+            self._polite_sleep(0.1, 0.3)
         print(f"  Crawled {len(self.visited)} pages, found {len(self.discovered_forms)} forms, {len(self.discovered_js_files)} JS files, {len(self.discovered_ajax)} API endpoints")
         return self.crawl_results
+
+    def _polite_sleep(self, lo: float = 0.1, hi: float = 0.3):
+        base = self.delay if isinstance(self.delay, (int, float)) and self.delay > 0 else lo
+        if self.stealth:
+            time.sleep(random.uniform(base, base + 0.6))
+        elif base > 0:
+            time.sleep(random.uniform(base * 0.5, base))
 
     def get_injection_points(self) -> List[Dict]:
         points = []
@@ -103,20 +112,23 @@ class SiteSpider:
         for f in self.discovered_forms:
             input_names = [i["name"] for i in f["inputs"]]
             points.append({"type": "form", "url": f["url"], "method": f["method"], "params": input_names, "inputs": f["inputs"]})
-        # Add test for common params on each discovered URL
-        for url in list(self.visited)[:20]:
-            for param in config.COMMON_PARAMS[:10]:
-                test_url = f"{url}{'&' if '?' in url else '?'}{param}=xss_test_marker_{random.randint(1000,9999)}"
-                try:
-                    self.session.headers.update(utils.random_headers(geo_spoof=self.geo_spoof))
-                    time.sleep(random.uniform(0.1, 0.3))
-                    resp = self.session.get(test_url, timeout=self.timeout, allow_redirects=True, verify=False)
-                    marker = test_url.split("=")[-1]
-                    if marker in resp.text and resp.status_code == 200:
-                        points.append({"type": "url_param_discovered", "url": url, "method": "GET", "params": [param]})
-                        print(f"    Discovered injectable param: {param} on {url}")
-                except:
-                    pass
+        # Lightweight param discovery: only when we have almost nothing to
+        # test, and only a handful of probes. The old code fired up to
+        # 20 urls x 10 params = 200 requests on every scan.
+        if len(points) <= 1:
+            for url in list(self.visited)[:3]:
+                for param in config.COMMON_PARAMS[:5]:
+                    test_url = f"{url}{'&' if '?' in url else '?'}{param}=xss_test_marker_{random.randint(1000,9999)}"
+                    try:
+                        self.session.headers.update(utils.random_headers(geo_spoof=self.geo_spoof))
+                        self._polite_sleep(0.05, 0.15)
+                        resp = self.session.get(test_url, timeout=min(self.timeout, 8), allow_redirects=True, verify=False)
+                        marker = test_url.split("=")[-1]
+                        if marker in resp.text and resp.status_code == 200:
+                            points.append({"type": "url_param_discovered", "url": url, "method": "GET", "params": [param]})
+                            print(f"    Discovered injectable param: {param} on {url}")
+                    except Exception:
+                        pass
         return points
 
 

@@ -263,7 +263,7 @@ class ReflectedXSSTester:
                     confidence *= 0.6
             bypasses = self.waf_bypass.detect_bypass_techniques(payload, text)
 
-        if is_reflected and confidence >= 0.3:
+        if is_reflected and confidence >= 0.6:
             dom_ok, dom_desc = self.analyzer.detect_dom_sink_in_response(payload, text)
             snippet = self.analyzer.extract_snippet(text, payload)
             final_confidence = min(confidence + (0.1 if dom_ok else 0), 0.99)
@@ -321,11 +321,13 @@ class ReflectedXSSTester:
 
 
 class HeaderXSSTester:
-    def __init__(self, session: requests.Session, timeout=15, geo_spoof=False):
+    def __init__(self, session: requests.Session, timeout=15, geo_spoof=False, max_payloads=0, aggressive_waf=False):
         self.session = session
         self.timeout = timeout
         self.geo_spoof = geo_spoof
         self.analyzer = ResponseAnalyzer()
+        self.max_payloads = max_payloads
+        self.aggressive_waf = aggressive_waf
         self.results = []
 
     def test_headers(self, urls: List[str], payloads: List[str]) -> List[Dict]:
@@ -333,10 +335,15 @@ class HeaderXSSTester:
         test_headers = config.COMMON_HEADERS_TO_TEST
         waf_detector = WAFDetector()
         waf_bypass = WAFBypass()
-        for url in urls[:5]:
+        variant_limit = config.WAF_MAX_MUTATIONS if self.aggressive_waf else 2
+        if self.max_payloads and self.max_payloads > 0:
+            payloads = payloads[:self.max_payloads]
+        else:
+            payloads = payloads[:5]
+        for url in urls[:3]:
             for payload in payloads[:10]:
                 for header in test_headers:
-                    inbound = [payload] + waf_bypass.generate_evasive_variants(payload, limit=config.WAF_MAX_MUTATIONS)
+                    inbound = [payload] + waf_bypass.generate_evasive_variants(payload, limit=variant_limit)
                     for hp in inbound:
                         try:
                             hdrs = utils.random_headers(geo_spoof=self.geo_spoof)
@@ -346,7 +353,7 @@ class HeaderXSSTester:
                                 time.sleep(config.WAF_RETRY_DELAY)
                                 continue
                             reflected, method, conf = self.analyzer.detect_reflection(hp, resp.text)
-                            if reflected:
+                            if reflected and conf >= 0.6:
                                 self.results.append({
                                     "xss_type": "reflected_header",
                                     "url": url,
