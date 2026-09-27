@@ -10,3 +10,13 @@ run.txt
 .vscode/
 .idea/
 *.log
+
+# agent session backups - contain real API keys, never commit
+opencode-backup-*.json
+scan_checkpoints/
+
+# env / secrets
+.env
+.env.*
+*.pem
+*.key
