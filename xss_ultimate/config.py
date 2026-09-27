@@ -30,6 +30,64 @@ AI_MAX_REQUESTS = 50
 AI_TEMPERATURE = 0.3
 AI_MAX_TOKENS = 4000
 
+# CAPTCHA Bypass Configuration
+CAPTCHA_API_KEY_2CAPTCHA = ""
+CAPTCHA_API_KEY_ANTICAPTCHA = ""
+CAPTCHA_API_KEY_AZURE = ""
+CAPTCHA_MAX_ATTEMPTS = 5
+CAPTCHA_AUTO_SOLVE = True  # Automatically attempt to solve any CAPTCHA
+CAPTCHA_SOLVE_TIMEOUT = 120  # Seconds to wait for CAPTCHA solving
+CAPTCHA_PYTESSERACT = False  # Set True if pytesseract is installed
+
+# AUTONOMOUS MODE Configuration
+AUTONOMOUS_MODE = True  # Default to autonomous (zero interaction)
+AUTONOMOUS_STEALTH = True  # Always use stealth by default
+AUTONOMOUS_GEO_SPOOF = True  # Always geo-spoof by default
+AUTONOMOUS_AUTO_EXPLOIT = True  # Automatically exploit on confirmed findings
+AUTONOMOUS_AUTO_POC = True  # Always generate PoC files
+AUTONOMOUS_MAX_PAGES = 500  # Maximum pages to crawl
+AUTONOMOUS_MAX_RESULTS = 1000  # Maximum results to keep
+AUTONOMOUS_MAX_CAPTCHAS = 5  # Max CAPTCHA solve attempts per scan
+AUTONOMOUS_HEADLESS_VERIFY = True  # Auto-verify with headless browser
+AUTONOMOUS_CHECKPOINT = True  # Enable scan checkpoints for resume
+
+# ADVANCED WAF BYPASS
+WAF_AUTO_DETECT = True  # Automatically detect WAF type
+WAF_AUTO_EVASION = True  # Automatically enable evasion
+WAF_MAX_MUTATIONS = 20  # Increased from 12 for stronger bypass
+WAF_RETRY_DELAY = 0.1
+WAF_LAYERED_ENCODING = True  # Apply layered encoding combinations
+WAF_RANDOMIZED_HEADERS = True  # Randomize headers per request
+WAF_PROTOCOL_SPLIT = True  # Split protocols (java\tscript:)
+WAF_NULL_BYTE = True  # Null byte injection
+WAF_COMMENT_INJECTION = True  # HTML comment injection
+WAF_UNICODE_HOMOGLOPHS = True  # Unicode character substitution
+WAF_UTF8_OVERLONG = True  # Overlong UTF-8 encoding
+WAF_BASE64_WRAPPING = True  # Base64 wrapping for eval(atob())
+WAF_STRING_FROM_CHAR_CODE = True  # String.fromCharCode obfuscation
+WAF_AUTO_CSP_BYPASS = True  # Automatically find CSP bypasses
+WAF_AUTO_FRAMEWORK_PAYLOADS = True  # Auto-generate framework-specific payloads
+
+# RESILIENCE
+RESILIENT_MAX_RETRIES = 5
+RESILIENT_BACKOFF_FACTOR = 0.5
+RESILIENT_CIRCUIT_BREAKER_THRESHOLD = 10
+RESILIENT_CIRCUIT_BREAKER_TIMEOUT = 120
+RESILIENT_AUTO_THROTTLE = True  # Automatically throttle on errors
+RESILIENT_ANTI_FINGERPRINT = True  # Anti-bot fingerprint management
+RESILIENT_MEMORY_MANAGEMENT = True  # Auto-trim results
+RESILIENT_CHECKPOINT_INTERVAL = 50  # Save checkpoint every N results
+RESILIENT_MEMORY_MAX_RESULTS = 1000
+
+# COLLAB
+COLLAB_AUTO_START = True  # Always auto-start collab server
+COLLAB_AUTO_PORT = 9999  # Auto-find available port if this is taken
+COLLAB_MAX_WAIT = 10  # Seconds to wait for blind callbacks
+
+# HEADLESS AUTO
+HEADLESS_AUTO_VERIFY = True  # Automatically verify with headless browser
+HEADLESS_AUTO_SCREENSHOT = True  # Take screenshots of verified findings
+
 COMMON_PARAMS = [
     "q", "search", "keyword", "id", "name", "email", "msg", "message", "comment",
     "text", "input", "query", "term", "page", "url", "link", "next", "redirect",

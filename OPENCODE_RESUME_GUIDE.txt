@@ -1,0 +1,79 @@
+OPENCODE SESSION RESUME GUIDE
+Generated: 2026-09-25
+
+WHAT WAS SAVED
+==============
+Every active opencode session is ALREADY autosaved in the central database:
+  C:\Users\Hermes\.local\share\opencode\opencode.db
+
+Additionally, a per-folder JSON backup was exported for each live session so
+they can also be restored folder-by-folder if needed:
+  opencode-backup-<sessionID>.json  (next to this guide / in each project folder)
+
+HOW TO CONTINUE A SESSION AFTER A SHUTDOWN
+============================================
+Option A (simplest -- uses the autosaved DB):
+  Open a terminal in the project folder and run:
+      opencode -s <sessionID>
+  (or: opencode -c  to continue the most recent session in that folder)
+
+Option B (restore from the per-folder JSON backup, if the DB is gone):
+      opencode import <full path to opencode-backup-<sessionID>.json>
+  then continue with the restored session.
+
+PER-SESSION RESUME COMMANDS
+============================
+[1] C:/Users/Hermes/Desktop/xss (CURRENT)
+    Title : XSS ULTIMATE v3.1-AUTONOMOUS — Full Enhancement
+    Resume: opencode "C:/Users/Hermes/Desktop/xss" -s ses_fa18c35a5ffecxsavp0heHaw6k
+    Status: CAPTCHA bypass, autonomous engine, resilience framework, WAF evasion
+    Files: autonomous_engine.py, captcha_bypass.py, resilience.py, main.py, config.py
+    Tests:  8/8 passing
+    Docs:   AUTONOMOUS_XSS_PROMPT.md, ENHANCEMENTS.md
+    Checkpoint: scan_checkpoints/autonomous_enhancement_complete.json
+
+[2] E:/chael
+    Title : Continue Chael fixes after interruption
+    Resume: opencode "E:/chael" -s ses_fa17e23d3ffepkMZr3rz7Jdx6m
+
+[3] C:/Users/Hermes/Desktop/screen konect
+    Title : Tool usage approaches beyond current stack
+    Resume: opencode "C:/Users/Hermes/Desktop/screen konect" -s ses_fa558d5ffffeTuHdFkTr9dK3hj
+
+[4] C:/Users/Hermes/Desktop/portfolio
+    Title : New session - 2026-09-01T01:48:56.133Z
+    Resume: opencode "C:/Users/Hermes/Desktop/portfolio" -s ses_fa558483affeZq7FY9ZgyzAaJA
+
+[5] E:/chael
+    Title : Fix Chael SIEM agent registration and clean logs
+    Resume: opencode "E:/chael" -s ses_fa5586f7bfferfqsQulRDosZdg
+
+[6] C:/Users/Hermes/Desktop/Link_Recon
+    Title : New session - 2026-09-01T01:47:54.969Z
+    Resume: opencode "C:/Users/Hermes/Desktop/Link_Recon" -s ses_fa559372bffer7kW6ABP8RtPvz
+
+[7] E:/local-marketplace
+    Title : Fix boost popup and update Hiresphere content
+    Resume: opencode "E:/local-marketplace" -s ses_fa559bdcdffekw3mhGuGrac4Cn
+
+[8] E:/chael
+    Title : Find all FastAPI main.py files (@explore subagent)
+    Resume: opencode "E:/chael" -s ses_fa543a66dffe0KwaXHHl3oFhDf
+
+[9] E:/chael
+    Title : Audit SIEM core services (@explore subagent)
+    Resume: opencode "E:/chael" -s ses_fa5546af4ffe1AvXO6HcYBleZ8
+
+CURRENT SESSION SUMMARY (ses_fa18c35a5ffecxsavp0heHaw6k)
+=========================================================
+Project: XSS ULTIMATE v3.1-AUTONOMOUS
+Task: Transform XSS Ultimate into fully autonomous zero-interaction scanner
+Enhancements completed:
+  - CAPTCHA bypass engine (12+ types detected, 8 solving strategies)
+  - Autonomous scanner engine (zero user interaction)
+  - Resilience framework (circuit breaker, anti-fingerprint, auto-throttle, memory mgmt)
+  - Enhanced WAF evasion (20+ mutations, auto-detection, layered encoding)
+  - Checkpoint/resume capability
+  - All existing tests passing (8/8)
+  - Documentation created (AUTONOMOUS_XSS_PROMPT.md, ENHANCEMENTS.md)
+Session backup: opencode-backup-ses_fa18c35a5ffecxsavp0heHaw6k.json

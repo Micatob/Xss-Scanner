@@ -4,9 +4,11 @@ import urllib.parse
 import json
 from typing import List, Dict, Tuple, Optional, Set
 
+import requests
 from bs4 import BeautifulSoup
 
 from . import config
+from .captcha_bypass import CAPTCHADetector
 
 
 class ResponseAnalyzer:
@@ -189,6 +191,17 @@ class ResponseAnalyzer:
 
     def verify_with_browser(self, payload: str, url: str) -> Dict:
         return {"verified": False, "message": "Browser not available"}
+
+
+    def detect_captcha(self, response: requests.Response) -> Dict:
+        """Detect CAPTCHA challenges in response."""
+        detector = CAPTCHADetector()
+        return detector.detect(response)
+
+    def is_captcha_blocked(self, response: requests.Response) -> bool:
+        """Quick check if response is a CAPTCHA block."""
+        detector = CAPTCHADetector()
+        return detector.is_captcha_response(response)
 
 
 class WAFDetector:
